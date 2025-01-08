@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EIP712 签名验证</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3/dist/web3.min.js"></script>
+</head>
+<body>
+    <h1>EIP712 签名验证测试</h1>
+    <input type="number" id="nonceInput" placeholder="输入 nonce" />
+    <button id="signButton">签名</button>
+    <button id="verifyButton">验证签名</button>
+    <p id="result"></p>
+
+    <script>
+        const contractAddress = "YOUR_CONTRACT_ADDRESS"; // 替换为你的合约地址
+        const abi = [ /* 合约的 ABI */ ];
+
+        const web3 = new Web3(Web3.givenProvider || "http://localhost:8545");
+        const contract = new web3.eth.Contract(abi, contractAddress);
+        let userAddress;
+        let signature;
+
+        async function signData() {
+            const accounts = await web3.eth.getAccounts();
+            userAddress = accounts[0];
+            const nonce = document.getElementById("nonceInput").value; // 获取 nonce
+
+            const data = { user: userAddress, value: 123, nonce: nonce }; // 包含 nonce
+
+            const domain = {
+                name: "EIP712Verifier",
+                version: "1",
+            };
+
+            const types = {
+                Data: [
+                    { name: "user", type: "address" },
+                    { name: "value", type: "uint256" },
+                    { name: "nonce", type: "uint256" }, // 包含 nonce
+                ],
+            };
+
+            signature = await web3.eth.personal.sign(
+                JSON.stringify({ domain, types, value: data }),
+                userAddress
+            );
+            alert("签名成功！");
+        }
+
+        async function verifySignature() {
+            const nonce = document.getElementById("nonceInput").value; // 获取 nonce
+            const data = { user: userAddress, value: 123, nonce: nonce }; // 包含 nonce
+            const isValid = await contract.methods.verifySignature(data, signature).call();
+            document.getElementById("result").innerText = isValid ? "签名有效" : "签名无效";
+        }
+
+        document.getElementById("signButton").onclick = signData;
+        document.getElementById("verifyButton").onclick = verifySignature;
+    </script>
+</body>
+</html>
