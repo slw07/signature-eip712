@@ -252,6 +252,28 @@
                     window.currentAccount = accounts[0];
                     updateResult(`账户已切换: ${accounts[0]}`);
                 });
+                // 监听账户变化
+                window.ethereum.on('accountsChanged', (accounts) => {
+                    console.log('当前账户:', accounts[0]);
+                    // 更新应用状态
+                });
+
+                // 监听链变化
+                window.ethereum.on('chainChanged', (chainId) => {
+                    console.log('当前链 ID:', chainId);
+                    // 重新加载页面或更新状态
+                    window.location.reload();
+                });
+
+                // 监听连接
+                window.ethereum.on('connect', (info) => {
+                    console.log('已连接:', info);
+                });
+
+                // 监听断开连接
+                window.ethereum.on('disconnect', (error) => {
+                    console.log('已断开连接:', error);
+                });
             }
         }
 
