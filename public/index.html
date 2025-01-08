@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>签名验证</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.5/ethers.umd.min.js">
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:disabled {
+            background-color: #cccccc;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EIP-712 签名验证</h1>
+        <button id="connectWallet">连接钱包</button>
+        <button id="sign" disabled>签名消息</button>
+        <button id="verify" disabled>验证签名</button>
+        <div id="result" class="result">
+            <pre>等待操作...</pre>
+        </div>
+    </div>
+
+    <script>
+        // 将所有代码包装在一个函数中
+        function initApp() {
+            const CONTRACT_ADDRESS = "0x661BA295CCb1b6e1940c71dAB198001207DE1A8E";
+            const CHAIN_ID = 11155111; // Sepolia
+
+            // 合约 ABI
+            const CONTRACT_ABI = [
+                "function getNextNonce(address) view returns (uint256)",
+                "function executeOrder((address maker, uint256 amount, uint256 nonce), bytes) external",
+                "function getMessageHash((address maker, uint256 amount, uint256 nonce)) view returns (bytes32)",
+                "event Debug(bytes32 digest, address recovered, address maker)",
+                "event OrderExecuted(address maker, uint256 amount, uint256 nonce)"
+            ];
+
+            let ethereum;
+            let signer;
+            let contract;
+            let currentAccount;
+            let signatureData = null;
+
+            // EIP-712 类型定义
+            const domain = {
+                name: 'SignatureVerifier',
+                version: '1.0.0',
+                chainId: CHAIN_ID,
+                verifyingContract: CONTRACT_ADDRESS
+            };
+
+            const types = {
+                Order: [
+                    { name: 'maker', type: 'address' },
+                    { name: 'amount', type: 'uint256' },
+                    { name: 'nonce', type: 'uint256' }
+                ]
+            };
+
+            async function initialize() {
+                try {
+                    // 直接检查 ethereum 对象
+                    if (typeof window.ethereum !== 'undefined') {
+                        console.log('找到 MetaMask!');
+                        return window.ethereum;
+                    } else {
+                        console.log('未找到 MetaMask，等待注入...');
+                        // 等待 MetaMask 注入
+                        await new Promise((resolve) => {
+                            window.addEventListener('ethereum#initialized', () => {
+                                resolve(window.ethereum);
+                            }, { once: true });
+                            
+                            // 如果事件没有触发，3秒后超时
+                            setTimeout(resolve, 3000);
+                        });
+                        
+                        if (typeof window.ethereum === 'undefined') {
+                            throw new Error('请安装 MetaMask');
+                        }
+                        return window.ethereum;
+                    }
+                } catch (error) {
+                    console.error('初始化错误:', error);
+                    throw error;
+                }
+            }
+
+            // 连接钱包函数
+            async function connectWallet() {
+                try {
+                    // 获取 ethereum 对象
+                    const ethereum = await initialize();
+                    
+                    // 请求账户
+                    const accounts = await ethereum.request({
+                        method: 'eth_requestAccounts'
+                    });
+                    
+                    if (!accounts || accounts.length === 0) {
+                        throw new Error('没有获取到账户');
+                    }
+
+                    const currentAccount = accounts[0];
+                    console.log('连接的账户:', currentAccount);
+
+                    // 设置 provider 和 signer
+                    const provider = new ethers.BrowserProvider(ethereum);
+                    const signer = await provider.getSigner();
+                    
+                    // 检查并切换网络
+                    try {
+                        await ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: '0xaa36a7' }] // Sepolia
+                        });
+                    } catch (error) {
+                        if (error.code === 4902) {
+                            await ethereum.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: '0xaa36a7',
+                                    chainName: 'Sepolia',
+                                    nativeCurrency: {
+                                        name: 'ETH',
+                                        symbol: 'ETH',
+                                        decimals: 18
+                                    },
+                                    rpcUrls: ['https://sepolia.infura.io/v3/'],
+                                    blockExplorerUrls: ['https://sepolia.etherscan.io']
+                                }]
+                            });
+                        }
+                    }
+
+                    // 创建合约实例
+                    const contract = new ethers.Contract(
+                        CONTRACT_ADDRESS,
+                        CONTRACT_ABI,
+                        signer
+                    );
+
+                    // 保存全局变量
+                    window.ethereum = ethereum;
+                    window.provider = provider;
+                    window.signer = signer;
+                    window.contract = contract;
+                    window.currentAccount = currentAccount;
+
+                    updateResult(`钱包已连接: ${currentAccount}`);
+                    document.getElementById('sign').disabled = false;
+
+                } catch (error) {
+                    console.error('连接错误:', error);
+                    updateResult(`错误: ${error.message}`);
+                }
+            }
+            async function signMessage() {
+                try {
+                    // 获取 nonce
+                    const nonce = await window.contract.getNextNonce(window.currentAccount);
+                    
+                    // 创建订单对象
+                    const order = {
+                        maker: window.currentAccount,
+                        amount: ethers.parseEther('1.0').toString(), // 转换为字符串
+                        nonce: nonce.toString() // 转换为字符串
+                    };
+
+                    // 获取签名 - ethers v6 的新方式
+                    const signature = await window.signer.signTypedData(
+                        domain,
+                        { Order: types.Order },
+                        order
+                    );
+
+                    signatureData = { order, signature };
+                    updateResult(`签名成功:\n订单: ${JSON.stringify(order, null, 2)}\n签名: ${signature}`);
+                    document.getElementById('verify').disabled = false;
+                } catch (error) {
+                    updateResult(`签名错误: ${error.message}`);
+                }
+            }
+
+            async function verifySignature() {
+                try {
+                    if (!signatureData) {
+                        throw new Error('请先生成签名');
+                    }
+
+                    // 发送交易到合约验证签名
+                    const tx = await window.contract.executeOrder(
+                        signatureData.order,
+                        signatureData.signature,
+                        { gasLimit: 200000n }
+                    );
+
+                    updateResult(`交易已发送，等待确认...\n交易哈希: ${tx.hash}`);
+
+                    // 等待交易确认
+                    const receipt = await tx.wait();
+                    updateResult(`交易已确认!\n区块号: ${receipt.blockNumber}\n交易哈希: ${receipt.hash}`);
+                } catch (error) {
+                    updateResult(`验证错误: ${error.message}`);
+                }
+            }
+
+            function updateResult(message) {
+                document.getElementById('result').innerHTML = `<pre>${message}</pre>`;
+            }
+
+            // 绑定事件监听器
+            document.getElementById('connectWallet').addEventListener('click', connectWallet);
+            document.getElementById('sign').addEventListener('click', signMessage);
+            document.getElementById('verify').addEventListener('click', verifySignature);
+
+            // 监听账户变化
+            if (window.ethereum) {
+                window.ethereum.on('accountsChanged', function (accounts) {
+                    window.currentAccount = accounts[0];
+                    updateResult(`账户已切换: ${accounts[0]}`);
+                });
+            }
+        }
+
+        // 在 DOMContentLoaded 事件触发后初始化应用
+        document.addEventListener('DOMContentLoaded', function() {
+            // 延迟一小段时间再初始化，给 MetaMask 更多时间注入
+            setTimeout(initApp, 1000);
+        });
+    </script>
+</body>
+</html> 

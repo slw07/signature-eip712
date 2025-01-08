@@ -1,0 +1,21 @@
+{
+  "name": "signature-verify",
+  "version": "1.0.0",
+  "description": "EIP-712 signature verification demo",
+  "main": "index.js",
+  "scripts": {
+    "start": "node scripts/server.js",
+    "sign": "node scripts/sign.js"
+  },
+  "keywords": [
+    "ethereum",
+    "signature",
+    "eip712"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.0.3",
+    "ethers": "^5.7.2"
+  }
+} 
